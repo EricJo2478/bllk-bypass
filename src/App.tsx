@@ -1,37 +1,47 @@
-import { Routes, Link } from "react-router-dom";
-import { Container, Navbar, Nav } from "react-bootstrap";
-import { useAuth } from "./auth/AuthContext";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Container } from "react-bootstrap";
+import { AuthProvider } from "./auth/AuthContext";
+import RequireAuth from "./auth/RequireAuth";
 
 export default function App() {
-  const { user } = useAuth();
-
   return (
-    <>
-      <Navbar className="mb-4" expand="sm">
-        <Container>
-          <Navbar.Brand as={Link} to="/">
-            EMS Diverts
-          </Navbar.Brand>
-          <Nav className="me-auto">
-            <Nav.Link as={Link} to="/report">
-              Report
-            </Nav.Link>
-            {user ? (
-              <Nav.Link as={Link} to="/account">
-                Account
-              </Nav.Link>
-            ) : (
-              <Nav.Link as={Link} to="/signin">
-                Sign In
-              </Nav.Link>
-            )}
-          </Nav>
-        </Container>
-      </Navbar>
+    <AuthProvider>
+      <BrowserRouter>
+        <Container className="py-4">
+          <Routes>
+            <Route path="/" element={<LandingPage />} />
 
-      <Container className="pb-5">
-        <Routes></Routes>
-      </Container>
-    </>
+            <Route path="/login" element={<LoginPage />} />
+
+            <Route
+              path="/account"
+              element={
+                <RequireAuth>
+                  <AccountPage />
+                </RequireAuth>
+              }
+            />
+
+            {/* Option A: let ReportPage handle blocking UI itself (simplest) */}
+            <Route path="/report" element={<ReportPage />} />
+
+            {/* Option B: lightweight guard—uncomment to require verified OR unit=? */}
+            {/*
+            <Route
+              path="/report"
+              element={
+                <RequireVerifiedOrUnit>
+                  <ReportPage />
+                </RequireVerifiedOrUnit>
+              }
+            />
+            */}
+
+            {/* catch-all */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Container>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
