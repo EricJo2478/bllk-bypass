@@ -17,23 +17,28 @@ import { useAuthState } from "react-firebase-hooks/auth";
 import { isMobileLike } from "../utils/device";
 
 async function ensureUserDoc(u: User) {
-  const ref = doc(db, "users", u.uid);
-  const snap = await getDoc(ref);
-  const base = {
-    displayName: u.displayName ?? "",
-    email: u.email ?? "",
-    photoURL: u.photoURL ?? null,
-    providers: (u.providerData ?? []).map((p) => p.providerId),
-    updatedAt: serverTimestamp(),
-  };
-  if (!snap.exists()) {
-    await setDoc(ref, {
-      ...base,
-      createdAt: serverTimestamp(),
-      verified: false, // default; you’ll flip this later
-    });
-  } else {
-    await setDoc(ref, base, { merge: true });
+  try {
+    const ref = doc(db, "users", u.uid);
+    const snap = await getDoc(ref);
+    const base = {
+      displayName: u.displayName ?? "",
+      email: u.email ?? "",
+      photoURL: u.photoURL ?? null,
+      providers: (u.providerData ?? []).map((p) => p.providerId),
+      updatedAt: serverTimestamp(),
+    };
+    if (!snap.exists()) {
+      await setDoc(ref, {
+        ...base,
+        createdAt: serverTimestamp(),
+        verified: false,
+      });
+    } else {
+      await setDoc(ref, base, { merge: true });
+    }
+  } catch (e) {
+    // Log but don't block the UI; user stays signed in.
+    console.error("ensureUserDoc failed:", e);
   }
 }
 
