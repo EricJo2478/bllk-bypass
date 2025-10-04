@@ -33,7 +33,7 @@ export default function AppNavbar() {
   }
 
   return (
-    <Navbar bg="light" expand="md" className="mb-4 border-bottom">
+    <Navbar expand="md" className="mb-4 border-bottom">
       <Container>
         <Navbar.Brand as={Link} to="/">
           EMS Diverts
