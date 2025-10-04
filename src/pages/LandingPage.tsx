@@ -12,26 +12,26 @@ import {
 } from "react-bootstrap";
 import {
   collection,
-  collectionGroup,
-  query,
-  where,
-  updateDoc,
   doc,
-  serverTimestamp,
   getDocs,
+  onSnapshot,
+  QuerySnapshot,
+  serverTimestamp,
+  updateDoc,
 } from "firebase/firestore";
-import { useCollection } from "react-firebase-hooks/firestore";
 import { db, auth } from "../services/firebase";
 import { fmtRegina } from "../utils/datetime";
-import { dateKeyFromNowRegina } from "../utils/dateKey";
+import { dateKeyFromNowRegina, dateKeyFromDate } from "../utils/dateKey";
 import type { Hospital } from "../types";
 
+/** Default window: now → next 24h */
 function defaultWindow() {
   const start = new Date();
   const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
   return { start, end };
 }
 
+/** Input helpers for date/time controls */
 function isoDate(d: Date) {
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000)
     .toISOString()
@@ -39,6 +39,25 @@ function isoDate(d: Date) {
 }
 function isoTime(d: Date) {
   return d.toTimeString().slice(0, 5);
+}
+
+/** Build Regina day keys inclusively for a window. */
+function dayKeysInWindowRegina(start: Date, end: Date): string[] {
+  // Find Regina date keys for start & end, then iterate by UTC days, computing Regina keys.
+  // This keeps it correct around midnight boundaries.
+  const keys = new Set<string>();
+  const oneDay = 24 * 60 * 60 * 1000;
+
+  // Normalize loop bounds (safe buffer)
+  const loopStart = new Date(start);
+  loopStart.setHours(0, 0, 0, 0);
+  const loopEnd = new Date(end);
+  loopEnd.setHours(0, 0, 0, 0);
+
+  for (let d = loopStart; d <= loopEnd; d = new Date(d.getTime() + oneDay)) {
+    keys.add(dateKeyFromDate(d)); // dateKeyFromDate formats using America/Regina
+  }
+  return Array.from(keys);
 }
 
 export default function LandingPage() {
@@ -73,48 +92,64 @@ export default function LandingPage() {
     [endDate, endTime]
   );
 
-  // --- Firestore queries: active diverts overlapping window ---
-  const q1 = useMemo(
-    () =>
-      query(
-        collectionGroup(db, "diverts"),
-        where("status", "==", "active"),
-        where("startedAt", "<=", end),
-        where("clearedAt", "==", null)
-      ),
-    [end.getTime()]
-  );
-  const q2 = useMemo(
-    () =>
-      query(
-        collectionGroup(db, "diverts"),
-        where("status", "==", "active"),
-        where("startedAt", "<=", end),
-        where("clearedAt", ">", start)
-      ),
-    [start.getTime(), end.getTime()]
-  );
-  const [snap1] = useCollection(q1);
-  const [snap2] = useCollection(q2);
+  // --- per-day listeners (NO collectionGroup) ---
+  const [dayDocs, setDayDocs] = useState<Record<string, any[]>>({});
 
+  useEffect(() => {
+    const keys = dayKeysInWindowRegina(start, end);
+    const unsubs: Array<() => void> = [];
+
+    // Reset then attach listeners for each day bucket
+    setDayDocs({});
+    keys.forEach((dk) => {
+      const q = collection(db, "days", dk, "diverts");
+      const unsub = onSnapshot(q, (snap: QuerySnapshot) => {
+        setDayDocs((prev) => ({
+          ...prev,
+          [dk]: snap.docs.map((d) => ({
+            id: d.id,
+            ref: d.ref,
+            ...(d.data() as any),
+          })),
+        }));
+      });
+      unsubs.push(unsub);
+    });
+
+    return () => unsubs.forEach((u) => u());
+  }, [start.getTime(), end.getTime()]); // re-subscribe when window changes
+
+  // Merge + filter + sort (client-side)
   const active = useMemo(() => {
-    const map = new Map<string, any>();
-    const push = (d: any) =>
-      map.set(d.ref.path, { id: d.id, ref: d.ref, ...(d.data() as any) });
-    snap1?.docs.forEach(push);
-    snap2?.docs.forEach(push);
-    let list = Array.from(map.values());
-    if (hospitalFilter !== "all") {
-      list = list.filter((x) => x.hospitalId === hospitalFilter);
-    }
-    list.sort((a, b) => {
+    const merged = Object.values(dayDocs).flat();
+
+    // Overlaps window if:
+    //   startedAt <= end AND (clearedAt == null OR clearedAt > start)
+    const list = merged.filter((x: any) => {
+      const s = x.startedAt?.toMillis?.() ?? new Date(x.startedAt).getTime();
+      const c =
+        x.clearedAt?.toMillis?.() ??
+        (x.clearedAt ? new Date(x.clearedAt).getTime() : null);
+      const startsBeforeWindowEnd = s <= end.getTime();
+      const isOngoing = c == null;
+      const clearsAfterWindowStart = c != null && c > start.getTime();
+      return startsBeforeWindowEnd && (isOngoing || clearsAfterWindowStart);
+    });
+
+    const filtered =
+      hospitalFilter === "all"
+        ? list
+        : list.filter((x: any) => x.hospitalId === hospitalFilter);
+
+    filtered.sort((a: any, b: any) => {
       const ta = a.startedAt?.toMillis?.() ?? new Date(a.startedAt).getTime();
       const tb = b.startedAt?.toMillis?.() ?? new Date(b.startedAt).getTime();
       if (ta !== tb) return ta - tb;
       return String(a.hospitalId).localeCompare(String(b.hospitalId));
     });
-    return list;
-  }, [snap1, snap2, hospitalFilter]);
+
+    return filtered;
+  }, [dayDocs, hospitalFilter, start.getTime(), end.getTime()]);
 
   async function endNow(refPath: string) {
     try {
@@ -197,7 +232,7 @@ export default function LandingPage() {
         </Alert>
       ) : (
         <Stack gap={3}>
-          {active.map((d) => {
+          {active.map((d: any) => {
             const kindBadge =
               d.kind === "full" ? (
                 <Badge bg="danger">FULL</Badge>
