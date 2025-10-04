@@ -1,6 +1,5 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { Container } from "react-bootstrap";
-import { AuthProvider } from "./auth/AuthContext";
 import RequireAuth from "./auth/RequireAuth";
 import RequireVerifiedOrUnit from "./auth/RequireVerifiedOrUnit";
 import ReportPage from "./pages/ReportPage";
