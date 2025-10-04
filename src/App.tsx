@@ -5,6 +5,7 @@ import RequireAuth from "./auth/RequireAuth";
 import RequireVerifiedOrUnit from "./auth/RequireVerifiedOrUnit";
 import ReportPage from "./pages/ReportPage";
 import AppNavbar from "./components/AppNavbar";
+import LandingPage from "./pages/LandingPage";
 
 export default function App() {
   return (
