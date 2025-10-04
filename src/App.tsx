@@ -4,11 +4,13 @@ import { AuthProvider } from "./auth/AuthContext";
 import RequireAuth from "./auth/RequireAuth";
 import RequireVerifiedOrUnit from "./auth/RequireVerifiedOrUnit";
 import ReportPage from "./pages/ReportPage";
+import AppNavbar from "./components/AppNavbar";
 
 export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <AppNavbar />
         <Container className="py-4">
           <Routes>
             <Route path="/" element={<LandingPage />} />

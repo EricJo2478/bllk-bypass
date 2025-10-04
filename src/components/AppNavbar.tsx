@@ -3,9 +3,10 @@ import { Navbar, Nav, Container, Button, Badge } from "react-bootstrap";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { auth, db } from "../services/firebase";
 import { doc, getDoc } from "firebase/firestore";
+import { useAuth } from "../auth/AuthContext";
 
 export default function AppNavbar() {
-  const user = auth.currentUser;
+  const { user } = useAuth();
   const nav = useNavigate();
 
   // lightweight verified check
