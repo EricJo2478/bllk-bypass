@@ -11,39 +11,37 @@ import AccountPage from "./pages/AccountPage";
 
 export default function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <AppNavbar />
-        <Container className="py-4">
-          <Routes>
-            <Route path="/" element={<LandingPage />} />
+    <>
+      <AppNavbar />
+      <Container className="py-4">
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
 
-            <Route path="/login" element={<LoginPage />} />
+          <Route path="/login" element={<LoginPage />} />
 
+          <Route
+            path="/account"
+            element={
+              <RequireAuth>
+                <AccountPage />
+              </RequireAuth>
+            }
+          />
+          {
             <Route
-              path="/account"
+              path="/report"
               element={
-                <RequireAuth>
-                  <AccountPage />
-                </RequireAuth>
+                <RequireVerifiedOrUnit>
+                  <ReportPage />
+                </RequireVerifiedOrUnit>
               }
             />
-            {
-              <Route
-                path="/report"
-                element={
-                  <RequireVerifiedOrUnit>
-                    <ReportPage />
-                  </RequireVerifiedOrUnit>
-                }
-              />
-            }
+          }
 
-            {/* catch-all */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Container>
-      </BrowserRouter>
-    </AuthProvider>
+          {/* catch-all */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Container>
+    </>
   );
 }
