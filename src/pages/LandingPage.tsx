@@ -21,33 +21,28 @@ import {
   getDocs,
 } from "firebase/firestore";
 import { useCollection } from "react-firebase-hooks/firestore";
-import { db } from "../services/firebase";
+import { db, auth } from "../services/firebase";
 import { fmtRegina } from "../utils/datetime";
 import { dateKeyFromNowRegina } from "../utils/dateKey";
 import type { Hospital } from "../types";
-import { useAuth } from "../auth/AuthContext";
 
-/** Default window: now → now + 24h */
 function defaultWindow() {
   const start = new Date();
   const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
   return { start, end };
 }
 
-/** ISO yyyy-mm-dd from Date (local-UTC is fine; we only use it for input values) */
 function isoDate(d: Date) {
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000)
     .toISOString()
     .slice(0, 10);
 }
-
-/** HH:mm */
 function isoTime(d: Date) {
   return d.toTimeString().slice(0, 5);
 }
 
 export default function LandingPage() {
-  // Hospitals list
+  // --- hospitals ---
   const [hospitals, setHospitals] = useState<Hospital[]>([]);
   useEffect(() => {
     (async () => {
@@ -61,13 +56,13 @@ export default function LandingPage() {
     })();
   }, []);
 
-  // Filters (default: next 24h)
+  // --- filters ---
   const { start: defStart, end: defEnd } = defaultWindow();
   const [startDate, setStartDate] = useState<string>(isoDate(defStart));
   const [startTime, setStartTime] = useState<string>(isoTime(defStart));
   const [endDate, setEndDate] = useState<string>(isoDate(defEnd));
   const [endTime, setEndTime] = useState<string>(isoTime(defEnd));
-  const [selectedHospitals, setSelectedHospitals] = useState<string[]>([]); // empty = all
+  const [hospitalFilter, setHospitalFilter] = useState<string>("all");
 
   const start = useMemo(
     () => new Date(`${startDate}T${startTime || "00:00"}:00Z`),
@@ -78,8 +73,7 @@ export default function LandingPage() {
     [endDate, endTime]
   );
 
-  // Firestore queries: “active overlapping window”
-  // Q1: no clear set
+  // --- Firestore queries: active diverts overlapping window ---
   const q1 = useMemo(
     () =>
       query(
@@ -88,11 +82,8 @@ export default function LandingPage() {
         where("startedAt", "<=", end),
         where("clearedAt", "==", null)
       ),
-    [end.getTime()] // eslint-disable-line react-hooks/exhaustive-deps
+    [end.getTime()]
   );
-  const [snap1] = useCollection(q1);
-
-  // Q2: has clear after start
   const q2 = useMemo(
     () =>
       query(
@@ -101,11 +92,11 @@ export default function LandingPage() {
         where("startedAt", "<=", end),
         where("clearedAt", ">", start)
       ),
-    [start.getTime(), end.getTime()] // eslint-disable-line react-hooks/exhaustive-deps
+    [start.getTime(), end.getTime()]
   );
+  const [snap1] = useCollection(q1);
   const [snap2] = useCollection(q2);
 
-  // Merge/uniq results (by full path)
   const active = useMemo(() => {
     const map = new Map<string, any>();
     const push = (d: any) =>
@@ -113,23 +104,19 @@ export default function LandingPage() {
     snap1?.docs.forEach(push);
     snap2?.docs.forEach(push);
     let list = Array.from(map.values());
-    // client-side hospital filter (keeps indexes simple)
-    if (selectedHospitals.length) {
-      const set = new Set(selectedHospitals);
-      list = list.filter((x) => set.has(x.hospitalId));
+    if (hospitalFilter !== "all") {
+      list = list.filter((x) => x.hospitalId === hospitalFilter);
     }
-    // sort: startedAt asc, then hospital
-    list.sort((a: any, b: any) => {
+    list.sort((a, b) => {
       const ta = a.startedAt?.toMillis?.() ?? new Date(a.startedAt).getTime();
       const tb = b.startedAt?.toMillis?.() ?? new Date(b.startedAt).getTime();
       if (ta !== tb) return ta - tb;
       return String(a.hospitalId).localeCompare(String(b.hospitalId));
     });
     return list;
-  }, [snap1, snap2, selectedHospitals]);
+  }, [snap1, snap2, hospitalFilter]);
 
   async function endNow(refPath: string) {
-    // refPath looks like "days/2025-10-05/diverts/abc"
     try {
       await updateDoc(doc(db, refPath), {
         status: "cleared",
@@ -185,39 +172,32 @@ export default function LandingPage() {
                 </Form.Text>
               </Col>
               <Col md={6} lg={7}>
-                <Form.Label className="mb-1">Hospitals</Form.Label>
+                <Form.Label className="mb-1">Hospital</Form.Label>
                 <Form.Select
-                  multiple
-                  value={selectedHospitals}
-                  onChange={(e) =>
-                    setSelectedHospitals(
-                      Array.from(e.target.selectedOptions).map((o) => o.value)
-                    )
-                  }
+                  value={hospitalFilter}
+                  onChange={(e) => setHospitalFilter(e.target.value)}
                 >
+                  <option value="all">All Hospitals</option>
                   {hospitals.map((h) => (
                     <option key={h.id} value={h.id}>
                       {h.name}
                     </option>
                   ))}
                 </Form.Select>
-                <Form.Text>
-                  Leave empty to include all. Hold Ctrl/Cmd to select multiple.
-                </Form.Text>
+                <Form.Text>Select one hospital or view all.</Form.Text>
               </Col>
             </Row>
           </Form>
         </Card.Body>
       </Card>
 
-      {/* Results */}
       {active.length === 0 ? (
         <Alert variant="light" className="border">
           No active diverts in this window.
         </Alert>
       ) : (
         <Stack gap={3}>
-          {active.map((d: any) => {
+          {active.map((d) => {
             const kindBadge =
               d.kind === "full" ? (
                 <Badge bg="danger">FULL</Badge>
@@ -247,37 +227,27 @@ export default function LandingPage() {
                       <div className="mb-2 d-flex align-items-center gap-2">
                         {kindBadge}
                         <Badge bg="success">ACTIVE</Badge>
-                        {d.source?.type === "unit" && (
-                          <Badge
-                            bg="light"
-                            text="dark"
-                            title={`Unit ${d.source?.unitId}`}
-                          >
-                            Unit
-                          </Badge>
-                        )}
-                        {d.source?.type === "user" && (
-                          <Badge bg="light" text="dark" title="Verified user">
-                            User
-                          </Badge>
-                        )}
                       </div>
-
                       <div className="text-muted">
-                        <span>
-                          <strong>Start:</strong> {fmtRegina(d.startedAt)}
-                        </span>
+                        <strong>Start:</strong> {fmtRegina(d.startedAt)}
                         {d.clearedAt && (
-                          <span className="ms-3">
-                            <strong>End:</strong> {fmtRegina(d.clearedAt)}
-                          </span>
+                          <>
+                            {" "}
+                            • <strong>End:</strong> {fmtRegina(d.clearedAt)}
+                          </>
                         )}
                       </div>
-
                       {d.notes && <div className="mt-2">{d.notes}</div>}
                     </div>
-
-                    <EndNowButton onClick={() => endNow(d.ref.path)} />
+                    {auth.currentUser && (
+                      <Button
+                        variant="outline-secondary"
+                        size="sm"
+                        onClick={() => endNow(d.ref.path)}
+                      >
+                        End now
+                      </Button>
+                    )}
                   </div>
                 </Card.Body>
               </Card>
@@ -286,28 +256,5 @@ export default function LandingPage() {
         </Stack>
       )}
     </Stack>
-  );
-}
-
-/** Shows "End now" only for verified users or the original creator (rules will ultimately enforce). */
-function EndNowButton({ onClick }: { onClick: () => void }) {
-  const [canShow, setCanShow] = useState(false);
-  const { user } = useAuth();
-
-  useEffect(() => {
-    // Lightweight client-side check: if signed in, we’ll show the button.
-    // Server-side rules actually enforce who can clear.
-    setCanShow(Boolean(user));
-  }, [user?.uid]);
-
-  if (!canShow) return null;
-  return (
-    <Button
-      variant="outline-secondary"
-      onClick={onClick}
-      title="Mark divert as cleared now"
-    >
-      End now
-    </Button>
   );
 }
