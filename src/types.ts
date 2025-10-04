@@ -1,29 +1,37 @@
-export type DivertKind =
-  | "full"
-  | "partial"
-  | "ct-divert"
-  | "labs-xray-divert"
-  | "other";
-export type ReporterTier = "verified" | "user" | "anonymous";
+// src/types.ts
 
-export interface HospitalDoc {
-  name: string;
-  shortCode: string;
-  region?: string;
-  active: boolean;
-}
+export type DivertKind = "full" | "labs-xray" | "ct" | "other";
+export type DivertStatus = "active" | "cleared";
 
-export interface DivertDoc {
+export type SourceUser = { type: "user" };
+export type SourceUnit = { type: "unit"; unitId: string };
+export type DivertSource = SourceUser | SourceUnit;
+
+export type DivertDoc = {
   hospitalId: string;
   kind: DivertKind;
   notes?: string;
-  status: "active" | "cleared";
-  startedAt: Date;
-  clearedAt?: Date | null;
-  createdAt: any; // Firestore serverTimestamp
-  createdByUid?: string;
-  reporterTier: ReporterTier;
-  dateKey: string; // YYYY-MM-DD
-  verifyCount: number; // count of verified thumbs-up
-  reportsCount: number; // number of underlying reports contributing
-}
+  status: DivertStatus;
+  startedAt: Date; // Firestore Timestamp on wire
+  clearedAt?: Date; // Firestore Timestamp on wire
+  createdAt: Date; // Firestore Timestamp on wire
+  dateKey: string; // "YYYY-MM-DD"
+  source: DivertSource;
+  createdByUid?: string; // only when source.type === 'user'
+  unitReportKey?: string; // only when source.type === 'unit'
+};
+
+export type Hospital = {
+  id: string;
+  name: string;
+  shortCode: string;
+  active?: boolean;
+};
+
+export type UnitDoc = {
+  label: string;
+  active: boolean;
+  reportKey: string;
+  reportKeyUpdatedAt?: Date;
+  allowedHospitals: string[];
+};

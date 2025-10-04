@@ -1,0 +1,143 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /**************************
+     * Helper functions
+     **************************/
+    // app admins (manage units/hospitals/users)
+    function isAdmin() {
+      return request.auth != null &&
+        get(/databases/$(database)/documents/meta/admins).data[request.auth.uid] == true;
+    }
+
+    // verified signed-in user (can report & clear)
+    function isVerified() {
+      return request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.verified == true;
+    }
+
+    // unit QR validation: unit is active, key matches, and the hospital is allowed
+    function unitKeyValidForHospital(unitId, providedKey, hospitalId) {
+      let u = get(/databases/$(database)/documents/units/$(unitId)).data;
+      return u.active == true
+        && providedKey is string
+        && providedKey == u.reportKey
+        && ('allowedHospitals' in u)
+        && u.allowedHospitals.hasAny([hospitalId]); // hospitalId ∈ allowedHospitals
+    }
+
+    /**************************
+     * USERS
+     **************************/
+    match /users/{uid} {
+      // public read (or require auth if you prefer)
+      allow read: if true;
+
+      // user can create their doc, but cannot set 'verified'
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && !('verified' in request.resource.data);
+
+      // user can update their doc except 'verified'; admins can update anything
+      allow update: if request.auth != null && (
+        (request.auth.uid == uid && !('verified' in request.resource.data))
+        || isAdmin()
+      );
+
+      // deletes: admin only (optional)
+      allow delete: if isAdmin();
+    }
+
+    /**************************
+     * HOSPITALS (catalog)
+     **************************/
+    match /hospitals/{hospitalId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    /**************************
+     * UNITS (QR issuers)
+     * NOTE: If you’re okay with clients reading unit docs (to prefill hospital choices),
+     * keep read: true. If you’d rather hide unit metadata, set read: if isAdmin();
+     * The write-path below does NOT require reading units (the create rule checks server-side).
+     **************************/
+    match /units/{unitId} {
+      allow read: if true;      // or isAdmin() if you want them hidden
+      allow write: if isAdmin();
+    }
+
+    /**************************
+     * DAILY DIVERTS
+     * /days/{YYYY-MM-DD}/diverts/{divertId}
+     **************************/
+    match /days/{dateKey}/diverts/{divertId} {
+      allow read: if true;
+
+      // CREATE: allowed by EITHER verified user OR unit QR
+      allow create: if
+        (
+          // (A) Verified account path
+          isVerified()
+          && request.auth != null
+          && request.resource.data.source.type == 'user'
+          && request.resource.data.createdByUid == request.auth.uid
+          // user path must NOT smuggle unit fields
+          && !('unitReportKey' in request.resource.data)
+        )
+        ||
+        (
+          // (B) Unit QR path
+          request.resource.data.source.type == 'unit'
+          && (request.resource.data.source.unitId is string)
+          && unitKeyValidForHospital(
+               request.resource.data.source.unitId,
+               request.resource.data.unitReportKey,
+               request.resource.data.hospitalId
+             )
+          // unit path must NOT pretend to be a user
+          && !('createdByUid' in request.resource.data)
+        )
+      // Strict schema: only these fields may be written on create
+      && request.resource.data.keys().hasOnly([
+          'hospitalId','kind','notes','status','startedAt','clearedAt',
+          'createdAt','createdByUid','source','dateKey','unitReportKey','seriesId'
+        ])
+      // Server-owned fields/values
+      && request.resource.data.createdAt == request.time
+      && request.resource.data.status == 'active'
+      // Basic type sanity (cheap checks)
+      && (request.resource.data.hospitalId is string)
+      && (request.resource.data.kind in ['full','labs-xray','ct','other'])
+      && (request.resource.data.source is map)
+      && (request.resource.data.dateKey is string);
+
+      // UPDATE: only allow CLEAR action (active -> cleared, server time)
+      allow update: if request.auth != null
+        // Only these fields may change
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['status','clearedAt'])
+        // Must currently be active
+        && resource.data.status == 'active'
+        // Incoming values must reflect a clear now
+        && request.resource.data.status == 'cleared'
+        && request.resource.data.clearedAt == request.time
+        // Who can clear: verified users OR original creator (if it was a user submit)
+        && (
+          isVerified()
+          || (resource.data.createdByUid is string && resource.data.createdByUid == request.auth.uid)
+        );
+
+      // DELETE: admin only (optional)
+      allow delete: if isAdmin();
+    }
+
+    /**************************
+     * META (admins/config)
+     **************************/
+    match /meta/{docId} {
+      allow read, write: if isAdmin();
+    }
+  }
+}
