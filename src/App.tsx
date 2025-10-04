@@ -6,6 +6,8 @@ import RequireVerifiedOrUnit from "./auth/RequireVerifiedOrUnit";
 import ReportPage from "./pages/ReportPage";
 import AppNavbar from "./components/AppNavbar";
 import LandingPage from "./pages/LandingPage";
+import LoginPage from "./pages/LoginPage";
+import AccountPage from "./pages/AccountPage";
 
 export default function App() {
   return (
