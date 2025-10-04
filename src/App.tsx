@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Container } from "react-bootstrap";
 import { AuthProvider } from "./auth/AuthContext";
 import RequireAuth from "./auth/RequireAuth";
+import RequireVerifiedOrUnit from "./auth/RequireVerifiedOrUnit";
+import ReportPage from "./pages/ReportPage";
 
 export default function App() {
   return (
@@ -21,21 +23,16 @@ export default function App() {
                 </RequireAuth>
               }
             />
-
-            {/* Option A: let ReportPage handle blocking UI itself (simplest) */}
-            <Route path="/report" element={<ReportPage />} />
-
-            {/* Option B: lightweight guard—uncomment to require verified OR unit=? */}
-            {/*
-            <Route
-              path="/report"
-              element={
-                <RequireVerifiedOrUnit>
-                  <ReportPage />
-                </RequireVerifiedOrUnit>
-              }
-            />
-            */}
+            {
+              <Route
+                path="/report"
+                element={
+                  <RequireVerifiedOrUnit>
+                    <ReportPage />
+                  </RequireVerifiedOrUnit>
+                }
+              />
+            }
 
             {/* catch-all */}
             <Route path="*" element={<Navigate to="/" replace />} />
