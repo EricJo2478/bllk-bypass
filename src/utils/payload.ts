@@ -1,5 +1,4 @@
 // src/utils/payload.ts
-
 import { serverTimestamp } from "firebase/firestore";
 import { dateFromRegina } from "./datetime";
 
@@ -44,6 +43,7 @@ type Base = {
   endTime?: string; // "HH:mm"
 };
 
+/** Builds payload for user-submitted divert */
 export function buildUserDivertPayload(input: Base & { createdByUid: string }) {
   const {
     hospitalId,
@@ -60,25 +60,25 @@ export function buildUserDivertPayload(input: Base & { createdByUid: string }) {
   const clearedAt =
     endDate && endTime ? dateFromRegina(endDate, endTime) : null;
 
-  // dateKey = day bucket for the START date in Regina
   const dateKey = startDate;
 
-  const payload = {
+  const raw = {
     hospitalId,
     kind,
-    notes: notes || undefined,
+    notes,
     status: "active" as const,
     startedAt,
-    clearedAt, // may be null; rules allow null
+    clearedAt,
     createdAt: serverTimestamp(),
     createdByUid,
     source: { type: "user" as const },
     dateKey,
   };
 
-  return payload;
+  return cleanUndefined(raw);
 }
 
+/** Builds payload for unit QR-submitted divert */
 export function buildUnitDivertPayload(
   input: Base & { unitId: string; unitReportKey: string }
 ) {
@@ -100,18 +100,18 @@ export function buildUnitDivertPayload(
 
   const dateKey = startDate;
 
-  const payload = {
+  const raw = {
     hospitalId,
     kind,
-    notes: notes || undefined,
+    notes,
     status: "active" as const,
     startedAt,
     clearedAt,
     createdAt: serverTimestamp(),
     source: { type: "unit" as const, unitId },
-    unitReportKey, // validated by rules
+    unitReportKey,
     dateKey,
   };
 
-  return payload;
+  return cleanUndefined(raw);
 }
