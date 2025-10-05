@@ -22,6 +22,21 @@ import type { DivertKind, Hospital, UnitDoc } from "../types";
 
 type Mode = "blocked" | "user" | "unit";
 
+function assertValidDateLike(v: any, label: string) {
+  if (v == null) throw new Error(`Missing ${label} datetime`);
+  // Firestore Timestamp?
+  if (typeof v?.toMillis === "function") {
+    const ms = v.toMillis();
+    if (!Number.isFinite(ms)) throw new Error(`Invalid ${label} datetime`);
+    return;
+  }
+  // JS Date or date-like
+  const d = v instanceof Date ? v : new Date(v);
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) {
+    throw new Error(`Invalid ${label} datetime`);
+  }
+}
+
 export default function ReportPage() {
   // --- Auth & user verification ---
   const [userVerified, setUserVerified] = useState<boolean>(false);
@@ -139,15 +154,30 @@ export default function ReportPage() {
 
     try {
       if (!hospitalId) throw new Error("Please select a hospital.");
-
-      // Guard: mode must be allowed
       if (mode === "blocked") {
         throw new Error(
           "You must be signed in and verified or use a valid unit QR to report."
         );
       }
 
-      // Build payload(s)
+      // 🔎 Log raw form inputs for debugging
+      console.log("[report] inputs", {
+        mode,
+        hospitalId,
+        kind,
+        notes,
+        isRecurring,
+        startDate,
+        startTime,
+        endDate,
+        endTime,
+        recStartDate,
+        recEndDate,
+        recDailyStart,
+        recDailyEnd,
+        unitId: unit?.id,
+      });
+
       if (!isRecurring) {
         // SINGLE
         if (mode === "user") {
@@ -163,13 +193,20 @@ export default function ReportPage() {
             endTime: endTime || undefined,
             createdByUid: uid,
           });
+
+          // ✅ Ensure critical datetimes exist & are valid
+          assertValidDateLike(payload.startedAt, "start");
+          if (payload.clearedAt != null)
+            assertValidDateLike(payload.clearedAt, "end");
+
+          console.log("[report] payload (user)", payload);
           await addDoc(
             collection(db, "days", payload.dateKey, "diverts"),
             payload
           );
           setOk("Divert reported.");
         } else {
-          // unit mode
+          // UNIT
           if (!unit) throw new Error("Invalid unit.");
           const payload = buildUnitDivertPayload({
             hospitalId,
@@ -182,6 +219,12 @@ export default function ReportPage() {
             unitId: unit.id,
             unitReportKey: unit.reportKey,
           });
+
+          assertValidDateLike(payload.startedAt, "start");
+          if (payload.clearedAt != null)
+            assertValidDateLike(payload.clearedAt, "end");
+
+          console.log("[report] payload (unit)", payload);
           await addDoc(
             collection(db, "days", payload.dateKey, "diverts"),
             payload
@@ -207,6 +250,11 @@ export default function ReportPage() {
               endTime: recDailyEnd,
               createdByUid: uid,
             });
+            assertValidDateLike(payload.startedAt, "start");
+            if (payload.clearedAt != null)
+              assertValidDateLike(payload.clearedAt, "end");
+
+            console.log("[report] payload (user, recurring)", payload);
             const ref = doc(collection(db, "days", payload.dateKey, "diverts"));
             batch.set(ref, payload);
           }
@@ -224,11 +272,17 @@ export default function ReportPage() {
               unitId: unit.id,
               unitReportKey: unit.reportKey,
             });
+            assertValidDateLike(payload.startedAt, "start");
+            if (payload.clearedAt != null)
+              assertValidDateLike(payload.clearedAt, "end");
+
+            console.log("[report] payload (unit, recurring)", payload);
             const ref = doc(collection(db, "days", payload.dateKey, "diverts"));
             batch.set(ref, payload);
           }
         }
 
+        console.log("[report] batching", days.length, "diverts");
         await batch.commit();
         setOk(`Created ${days.length} divert${days.length > 1 ? "s" : ""}.`);
       }
