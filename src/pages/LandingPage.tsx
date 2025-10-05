@@ -247,14 +247,14 @@ export default function LandingPage() {
           {active.map((d: any) => {
             const kindBadge =
               d.kind === "full" ? (
-                <Badge bg="danger">FULL</Badge>
-              ) : d.kind === "labs-xray" ? (
+                <Badge bg="danger">FULL DIVERT</Badge>
+              ) : d.kind === "labs-xray-divert" ? (
                 <Badge bg="warning" text="dark">
-                  LABS/X-RAY
+                  LABS/X-RAY DIVERT
                 </Badge>
-              ) : d.kind === "ct" ? (
+              ) : d.kind === "ct-divert" ? (
                 <Badge bg="info" text="dark">
-                  CT
+                  CT DIVERT
                 </Badge>
               ) : (
                 <Badge bg="secondary">OTHER</Badge>
