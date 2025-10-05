@@ -42,20 +42,23 @@ function isoTime(d: Date) {
 }
 
 /** Build Regina day keys inclusively for a window. */
-function dayKeysInWindowRegina(start: Date, end: Date): string[] {
-  // Find Regina date keys for start & end, then iterate by UTC days, computing Regina keys.
-  // This keeps it correct around midnight boundaries.
+function dayKeysInWindowRegina(
+  start: Date,
+  end: Date,
+  backfillDays = 3
+): string[] {
   const keys = new Set<string>();
   const oneDay = 24 * 60 * 60 * 1000;
 
-  // Normalize loop bounds (safe buffer)
-  const loopStart = new Date(start);
+  const loopStart = new Date(start.getTime());
   loopStart.setHours(0, 0, 0, 0);
-  const loopEnd = new Date(end);
+  loopStart.setTime(loopStart.getTime() - backfillDays * oneDay);
+
+  const loopEnd = new Date(end.getTime());
   loopEnd.setHours(0, 0, 0, 0);
 
   for (let d = loopStart; d <= loopEnd; d = new Date(d.getTime() + oneDay)) {
-    keys.add(dateKeyFromDate(d)); // dateKeyFromDate formats using America/Regina
+    keys.add(dateKeyFromDate(d)); // your Regina-aware util
   }
   return Array.from(keys);
 }
@@ -96,10 +99,9 @@ export default function LandingPage() {
   const [dayDocs, setDayDocs] = useState<Record<string, any[]>>({});
 
   useEffect(() => {
-    const keys = dayKeysInWindowRegina(start, end);
+    const keys = dayKeysInWindowRegina(start, end, 7);
     const unsubs: Array<() => void> = [];
 
-    // Reset then attach listeners for each day bucket
     setDayDocs({});
     keys.forEach((dk) => {
       const q = collection(db, "days", dk, "diverts");
@@ -117,24 +119,34 @@ export default function LandingPage() {
     });
 
     return () => unsubs.forEach((u) => u());
-  }, [start.getTime(), end.getTime()]); // re-subscribe when window changes
+  }, [start.getTime(), end.getTime()]);
 
   // Merge + filter + sort (client-side)
   const active = useMemo(() => {
     const merged = Object.values(dayDocs).flat();
 
-    // Overlaps window if:
-    //   startedAt <= end AND (clearedAt == null OR clearedAt > start)
-    const list = merged.filter((x: any) => {
-      const s = x.startedAt?.toMillis?.() ?? new Date(x.startedAt).getTime();
-      const c =
-        x.clearedAt?.toMillis?.() ??
-        (x.clearedAt ? new Date(x.clearedAt).getTime() : null);
-      const startsBeforeWindowEnd = s <= end.getTime();
-      const isOngoing = c == null;
-      const clearsAfterWindowStart = c != null && c > start.getTime();
-      return startsBeforeWindowEnd && (isOngoing || clearsAfterWindowStart);
-    });
+    const toMillis = (v: any): number | null => {
+      if (!v && v !== 0) return null; // undefined/null
+      if (typeof v?.toMillis === "function") return v.toMillis(); // Firestore Timestamp
+      if (v instanceof Date) return v.getTime();
+      const t = new Date(v as any).getTime();
+      return Number.isFinite(t) ? t : null;
+    };
+
+    const sWin = start.getTime();
+    const eWin = end.getTime();
+
+    const list = merged
+      .filter((x: any) => x?.status === "active") // only active
+      .filter((x: any) => {
+        const s = toMillis(x.startedAt);
+        const c = toMillis(x.clearedAt); // null means open-ended
+        if (s == null) return false; // invalid doc
+        const startsBeforeWindowEnd = s <= eWin;
+        const isOngoing = c == null; // ✅ open-ended counts as overlapping
+        const clearsAfterWindowStart = c != null && c > sWin;
+        return startsBeforeWindowEnd && (isOngoing || clearsAfterWindowStart);
+      });
 
     const filtered =
       hospitalFilter === "all"
@@ -142,8 +154,8 @@ export default function LandingPage() {
         : list.filter((x: any) => x.hospitalId === hospitalFilter);
 
     filtered.sort((a: any, b: any) => {
-      const ta = a.startedAt?.toMillis?.() ?? new Date(a.startedAt).getTime();
-      const tb = b.startedAt?.toMillis?.() ?? new Date(b.startedAt).getTime();
+      const ta = toMillis(a.startedAt) ?? 0;
+      const tb = toMillis(b.startedAt) ?? 0;
       if (ta !== tb) return ta - tb;
       return String(a.hospitalId).localeCompare(String(b.hospitalId));
     });
