@@ -1,9 +1,7 @@
 // src/utils/payload.ts
 
 import { serverTimestamp } from "firebase/firestore";
-import { dateKeyFromDate } from "./dateKey";
 import { dateFromRegina } from "./datetime";
-import type { DivertKind } from "../types";
 
 /** Recursively removes any `undefined` values so Firestore won't reject writes. */
 export function cleanUndefined<T extends Record<string, any>>(obj: T): T {
@@ -20,77 +18,6 @@ export function cleanUndefined<T extends Record<string, any>>(obj: T): T {
   return cleaned;
 }
 
-/** Build a single divert payload for a verified user. */
-export function buildUserDivertPayload(params: {
-  hospitalId: string;
-  kind: DivertKind;
-  notes?: string;
-  startDate: string; // "YYYY-MM-DD" Regina
-  startTime: string; // "HH:mm" Regina
-  endDate?: string;
-  endTime?: string;
-  createdByUid: string;
-  seriesId?: string;
-}) {
-  const startedAt = dateFromRegina(params.startDate, params.startTime);
-  const clearedAt =
-    params.endDate && params.endTime
-      ? dateFromRegina(params.endDate, params.endTime)
-      : undefined;
-
-  const rawPayload = {
-    hospitalId: params.hospitalId,
-    kind: params.kind,
-    notes: params.notes || undefined,
-    status: "active",
-    startedAt,
-    clearedAt,
-    createdAt: serverTimestamp(),
-    dateKey: dateKeyFromDate(startedAt),
-    source: { type: "user" },
-    createdByUid: params.createdByUid,
-    seriesId: params.seriesId,
-  };
-
-  return cleanUndefined(rawPayload);
-}
-
-/** Build a single divert payload for a unit QR submission. */
-export function buildUnitDivertPayload(params: {
-  hospitalId: string;
-  kind: DivertKind;
-  notes?: string;
-  startDate: string;
-  startTime: string;
-  endDate?: string;
-  endTime?: string;
-  unitId: string;
-  unitReportKey: string;
-  seriesId?: string;
-}) {
-  const startedAt = dateFromRegina(params.startDate, params.startTime);
-  const clearedAt =
-    params.endDate && params.endTime
-      ? dateFromRegina(params.endDate, params.endTime)
-      : undefined;
-
-  const rawPayload = {
-    hospitalId: params.hospitalId,
-    kind: params.kind,
-    notes: params.notes || undefined,
-    status: "active",
-    startedAt,
-    clearedAt,
-    createdAt: serverTimestamp(),
-    dateKey: dateKeyFromDate(startedAt),
-    source: { type: "unit", unitId: params.unitId },
-    unitReportKey: params.unitReportKey,
-    seriesId: params.seriesId,
-  };
-
-  return cleanUndefined(rawPayload);
-}
-
 /** Expand a recurring range (inclusive) into an array of day strings "YYYY-MM-DD". */
 export function eachDayInclusive(startDate: string, endDate: string): string[] {
   const [ys, ms, ds] = startDate.split("-").map(Number);
@@ -105,4 +32,86 @@ export function eachDayInclusive(startDate: string, endDate: string): string[] {
     days.push(`${y}-${m}-${day}`);
   }
   return days;
+}
+
+type Base = {
+  hospitalId: string;
+  kind: "full" | "labs-xray" | "ct" | "other";
+  notes?: string;
+  startDate: string; // "YYYY-MM-DD"
+  startTime: string; // "HH:mm"
+  endDate?: string; // "YYYY-MM-DD"
+  endTime?: string; // "HH:mm"
+};
+
+export function buildUserDivertPayload(input: Base & { createdByUid: string }) {
+  const {
+    hospitalId,
+    kind,
+    notes,
+    startDate,
+    startTime,
+    endDate,
+    endTime,
+    createdByUid,
+  } = input;
+
+  const startedAt = dateFromRegina(startDate, startTime);
+  const clearedAt =
+    endDate && endTime ? dateFromRegina(endDate, endTime) : null;
+
+  // dateKey = day bucket for the START date in Regina
+  const dateKey = startDate;
+
+  const payload = {
+    hospitalId,
+    kind,
+    notes: notes || undefined,
+    status: "active" as const,
+    startedAt,
+    clearedAt, // may be null; rules allow null
+    createdAt: serverTimestamp(),
+    createdByUid,
+    source: { type: "user" as const },
+    dateKey,
+  };
+
+  return payload;
+}
+
+export function buildUnitDivertPayload(
+  input: Base & { unitId: string; unitReportKey: string }
+) {
+  const {
+    hospitalId,
+    kind,
+    notes,
+    startDate,
+    startTime,
+    endDate,
+    endTime,
+    unitId,
+    unitReportKey,
+  } = input;
+
+  const startedAt = dateFromRegina(startDate, startTime);
+  const clearedAt =
+    endDate && endTime ? dateFromRegina(endDate, endTime) : null;
+
+  const dateKey = startDate;
+
+  const payload = {
+    hospitalId,
+    kind,
+    notes: notes || undefined,
+    status: "active" as const,
+    startedAt,
+    clearedAt,
+    createdAt: serverTimestamp(),
+    source: { type: "unit" as const, unitId },
+    unitReportKey, // validated by rules
+    dateKey,
+  };
+
+  return payload;
 }
