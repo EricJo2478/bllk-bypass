@@ -52,18 +52,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, loading] = useAuthState(auth);
 
   useEffect(() => {
-    // Complete Google redirect flow (mobile & popup fallback)
     (async () => {
       try {
+        const expect = localStorage.getItem("auth:expectRedirect");
+        if (!expect) {
+          // no redirect was initiated by this tab/session
+          return;
+        }
+        // clear the flag immediately to avoid repeated calls
+        localStorage.removeItem("auth:expectRedirect");
+
         const res = await getRedirectResult(auth);
         if (res?.user) {
-          // You returned from Google with a fresh credential
           console.debug("[auth] redirect result user:", res.user.uid);
-          await ensureUserDoc(res.user); // optional: make profile doc immediately
+          await ensureUserDoc(res.user); // optional
         } else {
-          console.debug(
-            "[auth] no redirect result (normal on non-redirect loads)"
-          );
+          console.debug("[auth] redirect returned null user (ok)");
         }
       } catch (e) {
         console.error("[auth] getRedirectResult error:", e);
@@ -101,17 +105,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const provider = new GoogleAuthProvider();
         provider.setCustomParameters({ prompt: "select_account" });
         try {
-          if (isMobileLike()) await signInWithRedirect(auth, provider);
-          else await signInWithPopup(auth, provider);
+          if (isMobileLike()) {
+            // mark that we initiated a redirect
+            localStorage.setItem("auth:expectRedirect", "1");
+            await signInWithRedirect(auth, provider);
+            return; // we’re navigating away
+          } else {
+            await signInWithPopup(auth, provider);
+          }
         } catch (err: any) {
           if (String(err?.code || "").includes("popup-")) {
+            localStorage.setItem("auth:expectRedirect", "1");
             await signInWithRedirect(auth, provider);
-          } else {
-            throw err;
+            return;
           }
+          throw err;
         }
-
-        // ensureUserDoc runs after redirect/popup via effect
       },
       async signOut() {
         await fbSignOut(auth);
