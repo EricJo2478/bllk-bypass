@@ -1,7 +1,5 @@
 // src/util/datetime.ts
 
-const REGINA_TZ = "America/Regina";
-
 /**
  * Parse "YYYY-MM-DD" and "HH:mm" safely.
  */
@@ -19,58 +17,18 @@ function parseYmdHm(dateStr: string, timeStr: string) {
 }
 
 /**
- * Get the numeric offset (minutes east of UTC, negative for "GMT-06:00" -> -360) for a given instant in a TZ.
- * We rely on timeZoneName: 'shortOffset' to get something like "GMT-06:00".
+ * Construct a JS Date representing the given local wall time.
+ * No timezone conversion; 07:00 means 07:00 in the environment’s local time.
  */
-function tzOffsetMinutesAt(instant: Date, timeZone: string): number {
-  const fmt = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    timeZoneName: "shortOffset",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  const parts = fmt.formatToParts(instant);
-  const tzName =
-    parts.find((p) => p.type === "timeZoneName")?.value || "GMT+00:00";
-  // tzName like "GMT-06:00" or "UTC+00:00"
-  const m = tzName.match(/([+-])(\d{2}):?(\d{2})/);
-  if (!m) return 0;
-  const sign = m[1] === "-" ? -1 : 1;
-  const h = parseInt(m[2], 10);
-  const min = parseInt(m[3], 10);
-  return sign * (h * 60 + min);
-}
-
-/**
- * Construct a JS Date that represents the instant when the Regina wall time equals
- * dateStr + timeStr. Works regardless of the user's local timezone.
- */
-export function dateFromRegina(dateStr: string, timeStr: string): Date {
+export function dateFromLocal(dateStr: string, timeStr: string): Date {
   const { y, m, d, hh, mm } = parseYmdHm(dateStr, timeStr);
-
-  // First guess: treat components as if they were UTC.
-  const guessUtcMs = Date.UTC(y, m - 1, d, hh, mm, 0, 0);
-  // Find Regina offset at that guess.
-  const off1 = tzOffsetMinutesAt(new Date(guessUtcMs), REGINA_TZ);
-  // Convert Regina wall time -> UTC epoch by subtracting offset minutes.
-  const utcMs = Date.UTC(y, m - 1, d, hh, mm, 0, 0) - off1 * 60_000;
-
-  // One refinement pass in case offset flips around that boundary.
-  const off2 = tzOffsetMinutesAt(new Date(utcMs), REGINA_TZ);
-  const refinedUtcMs =
-    off2 === off1 ? utcMs : Date.UTC(y, m - 1, d, hh, mm, 0, 0) - off2 * 60_000;
-
-  return new Date(refinedUtcMs);
+  return new Date(y, (m ?? 1) - 1, d ?? 1, hh ?? 0, mm ?? 0, 0, 0);
 }
 
 /**
- * Format any Firestore Timestamp/Date/ISO as Regina local string.
+ * Format any Firestore Timestamp/Date/ISO as a local wall-time string.
  */
-export function fmtRegina(v: any): string {
+export function fmtLocal(v: any): string {
   try {
     if (!v) return "";
     const d =
@@ -82,13 +40,13 @@ export function fmtRegina(v: any): string {
         ? v
         : new Date(v);
     return new Intl.DateTimeFormat("en-CA", {
-      timeZone: REGINA_TZ,
       year: "numeric",
       month: "short",
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
       hour12: true,
+      // NOTE: no timeZone specified → uses local environment time
     }).format(d);
   } catch {
     return "";
@@ -96,33 +54,53 @@ export function fmtRegina(v: any): string {
 }
 
 /**
- * Inclusive day iterator for "YYYY-MM-DD" strings.
+ * Inclusive day iterator for "YYYY-MM-DD" strings using LOCAL dates.
  */
 export function eachDayInclusive(a: string, b: string): string[] {
   const [ay, am, ad] = a.split("-").map((n) => parseInt(n, 10));
   const [by, bm, bd] = b.split("-").map((n) => parseInt(n, 10));
-  const start = new Date(Date.UTC(ay, am - 1, ad));
-  const end = new Date(Date.UTC(by, bm - 1, bd));
+
+  const start = new Date(ay, (am ?? 1) - 1, ad ?? 1);
+  const end = new Date(by, (bm ?? 1) - 1, bd ?? 1);
+
+  // Normalize to midnight local
+  start.setHours(0, 0, 0, 0);
+  end.setHours(0, 0, 0, 0);
+
   const out: string[] = [];
-  for (let d = start; d <= end; d = new Date(d.getTime() + 86_400_000)) {
-    const yyyy = d.getUTCFullYear();
-    const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-    const dd = String(d.getUTCDate()).padStart(2, "0");
+  for (
+    let d = new Date(start);
+    d <= end;
+    d = new Date(d.getTime() + 86_400_000)
+  ) {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
     out.push(`${yyyy}-${mm}-${dd}`);
   }
   return out;
 }
 
-/** Now and window edges in UTC Dates, based on Regina wall clock. */
-export function reginaNow(): Date {
-  // Use Intl to derive the current Regina wall-clock and then map to actual UTC "now".
-  const now = new Date();
-  // No conversion needed here for logic; this is fine for "now".
-  return now;
+/** Local "now" and a simple 24h window using local clock. */
+export function nowLocal(): Date {
+  return new Date();
 }
 
 export function next24hWindow(): { start: Date; end: Date } {
-  const start = new Date(); // now UTC
+  const start = nowLocal();
   const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
   return { start, end };
 }
+
+/* ------------------------------------------------------------------
+ * Backwards-compatible aliases (remove later if you fully migrate)
+ * ------------------------------------------------------------------ */
+
+/** Alias: previous code called this; now it’s timezone-free local. */
+export const dateFromRegina = dateFromLocal;
+
+/** Alias: previous code called this; now it’s timezone-free local. */
+export const fmtRegina = fmtLocal;
+
+/** Alias: previous code called this; now it’s just local now. */
+export const reginaNow = nowLocal;

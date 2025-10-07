@@ -22,6 +22,32 @@ import type { DivertKind, Hospital, UnitDoc } from "../types";
 
 type Mode = "blocked" | "user" | "unit";
 
+function compareHm(a: string, b: string) {
+  const [ah, am] = a.split(":").map(Number);
+  const [bh, bm] = b.split(":").map(Number);
+  if (ah !== bh) return ah < bh ? -1 : 1;
+  if (am !== bm) return am < bm ? -1 : 1;
+  return 0;
+}
+function nextDateStr(yyyyMmDd: string) {
+  const [y, m, d] = yyyyMmDd.split("-").map(Number);
+  const dt = new Date(y, (m ?? 1) - 1, d ?? 1);
+  dt.setDate(dt.getDate() + 1);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+function prevDateStr(yyyyMmDd: string) {
+  const [y, m, d] = yyyyMmDd.split("-").map(Number);
+  const dt = new Date(y, (m ?? 1) - 1, d ?? 1);
+  dt.setDate(dt.getDate() - 1);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
 function assertValidDateLike(v: any, label: string) {
   if (v == null) throw new Error(`Missing ${label} datetime`);
   // Firestore Timestamp?
@@ -233,58 +259,73 @@ export default function ReportPage() {
         }
       } else {
         // RECURRING (expand 1 per day)
-        const days = eachDayInclusive(recStartDate, recEndDate);
+        const isOvernight = compareHm(recDailyEnd, recDailyStart) <= 0;
+
+        // Determine which days to START a divert on
+        let startDays: string[] = [];
+        if (!isOvernight) {
+          // e.g., 07:00 → 19:00 : inclusive of recEndDate
+          startDays = eachDayInclusive(recStartDate, recEndDate);
+        } else {
+          // e.g., 16:30 → 07:00 : exclusive of recEndDate so final end hits recEndDate@07:00
+          if (recStartDate === recEndDate) {
+            // one overnight spanning into the next day
+            startDays = [recStartDate];
+          } else {
+            startDays = eachDayInclusive(recStartDate, prevDateStr(recEndDate));
+          }
+        }
+
         const batch = writeBatch(db);
 
         if (mode === "user") {
           const uid = auth.currentUser?.uid;
           if (!uid) throw new Error("Not signed in.");
-          for (const day of days) {
+
+          for (const day of startDays) {
+            const endDay = isOvernight ? nextDateStr(day) : day;
             const payload = buildUserDivertPayload({
               hospitalId,
               kind,
               notes: notes.trim() || undefined,
               startDate: day,
               startTime: recDailyStart,
-              endDate: day,
+              endDate: endDay,
               endTime: recDailyEnd,
               createdByUid: uid,
             });
-            assertValidDateLike(payload.startedAt, "start");
-            if (payload.clearedAt != null)
-              assertValidDateLike(payload.clearedAt, "end");
-
             console.log("[report] payload (user, recurring)", payload);
             const ref = doc(collection(db, "days", payload.dateKey, "diverts"));
             batch.set(ref, payload);
           }
         } else {
           if (!unit) throw new Error("Invalid unit.");
-          for (const day of days) {
+
+          for (const day of startDays) {
+            const endDay = isOvernight ? nextDateStr(day) : day;
             const payload = buildUnitDivertPayload({
               hospitalId,
               kind,
               notes: notes.trim() || undefined,
               startDate: day,
               startTime: recDailyStart,
-              endDate: day,
+              endDate: endDay,
               endTime: recDailyEnd,
               unitId: unit.id,
               unitReportKey: unit.reportKey,
             });
-            assertValidDateLike(payload.startedAt, "start");
-            if (payload.clearedAt != null)
-              assertValidDateLike(payload.clearedAt, "end");
-
             console.log("[report] payload (unit, recurring)", payload);
             const ref = doc(collection(db, "days", payload.dateKey, "diverts"));
             batch.set(ref, payload);
           }
         }
 
-        console.log("[report] batching", days.length, "diverts");
         await batch.commit();
-        setOk(`Created ${days.length} divert${days.length > 1 ? "s" : ""}.`);
+        setOk(
+          `Created ${startDays.length} divert${
+            startDays.length > 1 ? "s" : ""
+          }.`
+        );
       }
 
       // Reset minimal fields after success (keep hospital/kind)
@@ -378,8 +419,10 @@ export default function ReportPage() {
                       onChange={(e) => setKind(e.target.value as DivertKind)}
                     >
                       <option value="full">Full divert</option>
-                      <option value="labs-xray">Labs/X-Ray unavailable</option>
-                      <option value="ct">CT down</option>
+                      <option value="labs-xray-divert">
+                        Labs/X-Ray unavailable
+                      </option>
+                      <option value="ct-divert">CT down</option>
                       <option value="other">Other</option>
                     </Form.Select>
                   </Form.Group>

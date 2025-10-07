@@ -1,6 +1,5 @@
 // src/utils/payload.ts
 import { serverTimestamp } from "firebase/firestore";
-import { dateFromRegina } from "./datetime";
 
 /** Type guards / helpers */
 function isPlainObject(value: any): value is Record<string, any> {
@@ -10,10 +9,9 @@ function isPlainObject(value: any): value is Record<string, any> {
   return proto === Object.prototype || proto === null;
 }
 function isFirestoreTimestampLike(v: any): boolean {
-  return !!(v && typeof v.toMillis === "function"); // Firestore Timestamp has toMillis()
+  return !!(v && typeof v.toMillis === "function");
 }
 function isFirestoreFieldValue(v: any): boolean {
-  // serverTimestamp() and other FieldValue sentinels aren't plain objects and must pass through
   return !!(v && typeof v === "object" && typeof v._methodName === "string");
 }
 
@@ -24,7 +22,6 @@ function isFirestoreFieldValue(v: any): boolean {
  * - Only recurses into *plain* objects (so we don't destroy special types).
  */
 export function cleanUndefined<T>(value: T): T {
-  // Leave special types as-is
   if (
     value instanceof Date ||
     isFirestoreTimestampLike(value) ||
@@ -34,7 +31,6 @@ export function cleanUndefined<T>(value: T): T {
   }
 
   if (Array.isArray(value)) {
-    // Clean each element and drop `undefined`
     const cleaned = (value as any[])
       .map((v) => cleanUndefined(v))
       .filter((v) => v !== undefined);
@@ -51,7 +47,6 @@ export function cleanUndefined<T>(value: T): T {
     return out as T;
   }
 
-  // primitives and other objects pass through
   return value;
 }
 
@@ -59,16 +54,23 @@ export function cleanUndefined<T>(value: T): T {
 export function eachDayInclusive(startDate: string, endDate: string): string[] {
   const [ys, ms, ds] = startDate.split("-").map(Number);
   const [ye, me, de] = endDate.split("-").map(Number);
-  const start = new Date(Date.UTC(ys, ms - 1, ds));
-  const end = new Date(Date.UTC(ye, me - 1, de));
+  const start = new Date(ys, ms - 1, ds);
+  const end = new Date(ye, me - 1, de);
   const days: string[] = [];
   for (let d = start; d <= end; d = new Date(d.getTime() + 86_400_000)) {
-    const y = d.getUTCFullYear();
-    const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-    const day = String(d.getUTCDate()).padStart(2, "0");
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
     days.push(`${y}-${m}-${day}`);
   }
   return days;
+}
+
+/** Build a Date object in *local* time — no timezone conversions. */
+function dateFromLocal(dateStr: string, timeStr: string): Date {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const [hh, mm] = timeStr.split(":").map(Number);
+  return new Date(y, (m ?? 1) - 1, d ?? 1, hh ?? 0, mm ?? 0, 0, 0);
 }
 
 type Base = {
@@ -94,20 +96,19 @@ export function buildUserDivertPayload(input: Base & { createdByUid: string }) {
     createdByUid,
   } = input;
 
-  const startedAt = dateFromRegina(startDate, startTime);
-  const clearedAt =
-    endDate && endTime ? dateFromRegina(endDate, endTime) : null;
-
+  // No timezone adjustment — use direct local wall time
+  const startedAt = dateFromLocal(startDate, startTime);
+  const clearedAt = endDate && endTime ? dateFromLocal(endDate, endTime) : null;
   const dateKey = startDate;
 
   const raw = {
     hospitalId,
     kind,
-    notes, // may be undefined; cleanUndefined will strip it
+    notes,
     status: "active" as const,
-    startedAt, // Date (kept)
-    clearedAt, // Date|null (kept)
-    createdAt: serverTimestamp(), // FieldValue (kept)
+    startedAt,
+    clearedAt,
+    createdAt: serverTimestamp(),
     createdByUid,
     source: { type: "user" as const },
     dateKey,
@@ -132,10 +133,8 @@ export function buildUnitDivertPayload(
     unitReportKey,
   } = input;
 
-  const startedAt = dateFromRegina(startDate, startTime);
-  const clearedAt =
-    endDate && endTime ? dateFromRegina(endDate, endTime) : null;
-
+  const startedAt = dateFromLocal(startDate, startTime);
+  const clearedAt = endDate && endTime ? dateFromLocal(endDate, endTime) : null;
   const dateKey = startDate;
 
   const raw = {
