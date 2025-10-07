@@ -52,8 +52,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, loading] = useAuthState(auth);
 
   useEffect(() => {
-    // Completes Google redirect flow on mobile
-    getRedirectResult(auth).catch(() => {});
+    // Complete Google redirect flow (mobile & popup fallback)
+    (async () => {
+      try {
+        const res = await getRedirectResult(auth);
+        if (res?.user) {
+          // You returned from Google with a fresh credential
+          console.debug("[auth] redirect result user:", res.user.uid);
+          await ensureUserDoc(res.user); // optional: make profile doc immediately
+        } else {
+          console.debug(
+            "[auth] no redirect result (normal on non-redirect loads)"
+          );
+        }
+      } catch (e) {
+        console.error("[auth] getRedirectResult error:", e);
+      }
+    })();
   }, []);
 
   // 👇 Ensure a Firestore user doc exists for any provider
@@ -95,6 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             throw err;
           }
         }
+
         // ensureUserDoc runs after redirect/popup via effect
       },
       async signOut() {
