@@ -7,6 +7,7 @@ import AppNavbar from "./components/AppNavbar";
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import AccountPage from "./pages/AccountPage";
+import AdminPage from "./pages/AdminPage";
 
 export default function App() {
   return (
@@ -26,16 +27,17 @@ export default function App() {
               </RequireAuth>
             }
           />
-          {
-            <Route
-              path="/report"
-              element={
-                <RequireVerifiedOrUnit>
-                  <ReportPage />
-                </RequireVerifiedOrUnit>
-              }
-            />
-          }
+
+          <Route
+            path="/report"
+            element={
+              <RequireVerifiedOrUnit>
+                <ReportPage />
+              </RequireVerifiedOrUnit>
+            }
+          />
+
+          <Route path="/admin" element={<AdminPage />} />
 
           {/* catch-all */}
           <Route path="*" element={<Navigate to="/" replace />} />
