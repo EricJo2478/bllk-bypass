@@ -1,9 +1,10 @@
-import { initializeApp } from "firebase/app";
+import { getApps, initializeApp } from "firebase/app";
 import {
   initializeAuth,
   indexedDBLocalPersistence,
   browserLocalPersistence,
   browserSessionPersistence,
+  browserPopupRedirectResolver,
 } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
@@ -16,15 +17,17 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-export const app = initializeApp(firebaseConfig);
+// Avoid multiple apps in dev/hot-reload
+const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 
-// ✅ Robust multi-fallback persistence so redirect survives reloads
+// Initialize Auth ONCE with robust persistence (before any hooks/listeners)
 export const auth = initializeAuth(app, {
   persistence: [
-    indexedDBLocalPersistence, // best (survives reloads, multi-tab)
-    browserLocalPersistence, // good fallback
-    browserSessionPersistence, // last resort (survives redirects in same tab)
+    indexedDBLocalPersistence,
+    browserLocalPersistence,
+    browserSessionPersistence,
   ],
+  popupRedirectResolver: browserPopupRedirectResolver, // 👈 critical
 });
 
 // Firestore (unchanged; optional caching)

@@ -19,15 +19,17 @@ import { isMobileLike } from "../utils/device";
 async function ensureUserDoc(u: User) {
   try {
     const ref = doc(db, "users", u.uid);
-    const base = {
-      displayName: u.displayName ?? "",
-      email: u.email ?? "",
-      photoURL: u.photoURL ?? null,
-      providers: (u.providerData ?? []).map((p) => p.providerId),
-      // Note: updatedAt will change on every login; that's fine.
-      updatedAt: serverTimestamp(),
-    };
-    await setDoc(ref, base, { merge: true });
+    await setDoc(
+      ref,
+      {
+        displayName: u.displayName ?? "",
+        email: u.email ?? "",
+        photoURL: u.photoURL ?? null,
+        providers: (u.providerData ?? []).map((p) => p.providerId),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
   } catch (e) {
     console.error("ensureUserDoc failed:", e);
   }
@@ -51,23 +53,20 @@ const AuthContext = createContext<Ctx | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, loading] = useAuthState(auth);
 
+  // Only finish redirect if WE initiated one (prevents auth/argument-error)
   useEffect(() => {
     (async () => {
       try {
         const expect = localStorage.getItem("auth:expectRedirect");
-        if (!expect) {
-          // no redirect was initiated by this tab/session
-          return;
-        }
-        // clear the flag immediately to avoid repeated calls
+        if (!expect) return;
         localStorage.removeItem("auth:expectRedirect");
 
         const res = await getRedirectResult(auth);
         if (res?.user) {
-          console.debug("[auth] redirect result user:", res.user.uid);
-          await ensureUserDoc(res.user); // optional
+          console.debug("[auth] redirect user:", res.user.uid);
+          await ensureUserDoc(res.user);
         } else {
-          console.debug("[auth] redirect returned null user (ok)");
+          console.debug("[auth] redirect: no user (ok)");
         }
       } catch (e) {
         console.error("[auth] getRedirectResult error:", e);
@@ -75,12 +74,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  // 👇 Ensure a Firestore user doc exists for any provider
   useEffect(() => {
-    if (user) {
-      ensureUserDoc(user).catch(console.error);
-    }
-  }, [user?.uid]); // run once per uid
+    if (user) ensureUserDoc(user).catch(console.error);
+  }, [user?.uid]);
 
   const value = useMemo<Ctx>(
     () => ({
@@ -88,7 +84,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading,
       async signInEmail(email, password) {
         await signInWithEmailAndPassword(auth, email, password);
-        // ensureUserDoc will run via the effect
       },
       async signUpEmail(email, password, displayName) {
         const cred = await createUserWithEmailAndPassword(
@@ -96,30 +91,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email,
           password
         );
-        if (displayName) {
-          await updateProfile(cred.user, { displayName });
-        }
-        await ensureUserDoc(cred.user); // optional; effect will also run
+        if (displayName) await updateProfile(cred.user, { displayName });
+        await ensureUserDoc(cred.user);
       },
       async signInGoogle() {
         const provider = new GoogleAuthProvider();
         provider.setCustomParameters({ prompt: "select_account" });
+
+        console.log("[auth] config", {
+          authDomain: (auth as any)?.config?.authDomain,
+          appName: (auth as any)?.app?.name,
+          providerId: (provider as any)?.providerId,
+        });
+
         try {
           if (isMobileLike()) {
-            // mark that we initiated a redirect
             localStorage.setItem("auth:expectRedirect", "1");
             await signInWithRedirect(auth, provider);
-            return; // we’re navigating away
           } else {
             await signInWithPopup(auth, provider);
           }
         } catch (err: any) {
-          if (String(err?.code || "").includes("popup-")) {
+          console.error(
+            "[auth] signInGoogle failed:",
+            err?.code,
+            err?.message,
+            err
+          );
+          if (String(err?.code || "").startsWith("auth/popup-")) {
             localStorage.setItem("auth:expectRedirect", "1");
             await signInWithRedirect(auth, provider);
-            return;
+          } else {
+            throw err;
           }
-          throw err;
         }
       },
       async signOut() {

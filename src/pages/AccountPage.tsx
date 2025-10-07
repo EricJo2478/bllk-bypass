@@ -11,11 +11,12 @@ import {
   ListGroup,
   Image,
 } from "react-bootstrap";
-import { auth, db } from "../services/firebase";
+import { db } from "../services/firebase";
 import { doc, getDoc } from "firebase/firestore";
+import { useAuth } from "../auth/AuthContext";
 
 export default function AccountPage() {
-  const user = auth.currentUser;
+  const { user, signOut } = useAuth();
   const [verifiedFlag, setVerifiedFlag] = useState<boolean | null>(null);
   const [error, setError] = useState<string>("");
 
@@ -49,7 +50,7 @@ export default function AccountPage() {
   );
 
   async function handleSignOut() {
-    await auth.signOut();
+    await signOut();
     // optional: window.location.assign("/") to hard-redirect
   }
 

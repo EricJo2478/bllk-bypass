@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { Navbar, Nav, Container, Button, Badge } from "react-bootstrap";
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { auth, db } from "../services/firebase";
+import { db } from "../services/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { useAuth } from "../auth/AuthContext";
 
 export default function AppNavbar() {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const nav = useNavigate();
 
   // lightweight verified check
@@ -28,7 +28,7 @@ export default function AppNavbar() {
   }, [user?.uid]);
 
   async function handleSignOut() {
-    await auth.signOut();
+    await signOut();
     nav("/");
   }
 

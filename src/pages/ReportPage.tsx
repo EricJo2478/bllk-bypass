@@ -10,7 +10,7 @@ import {
   query,
   writeBatch,
 } from "firebase/firestore";
-import { auth, db } from "../services/firebase";
+import { db } from "../services/firebase";
 import { getUnitFromUrl } from "../utils/url";
 import { dateKeyFromNowRegina } from "../utils/dateKey";
 import {
@@ -19,6 +19,7 @@ import {
   buildUnitDivertPayload,
 } from "../utils/payload";
 import type { DivertKind, Hospital, UnitDoc } from "../types";
+import { useAuth } from "../auth/AuthContext";
 
 type Mode = "blocked" | "user" | "unit";
 
@@ -67,18 +68,18 @@ export default function ReportPage() {
   // --- Auth & user verification ---
   const [userVerified, setUserVerified] = useState<boolean>(false);
   const [userChecked, setUserChecked] = useState<boolean>(false);
+  const { user } = useAuth();
 
   useEffect(() => {
-    const u = auth.currentUser;
-    if (!u) {
+    if (!user) {
       setUserVerified(false);
       setUserChecked(true);
       return;
     }
-    getDoc(doc(db, "users", u.uid))
+    getDoc(doc(db, "users", user.uid))
       .then((snap) => setUserVerified(Boolean(snap.data()?.verified)))
       .finally(() => setUserChecked(true));
-  }, [auth.currentUser?.uid]);
+  }, [user?.uid]);
 
   // --- Unit QR (from URL) ---
   const unitId = getUnitFromUrl();
@@ -207,7 +208,7 @@ export default function ReportPage() {
       if (!isRecurring) {
         // SINGLE
         if (mode === "user") {
-          const uid = auth.currentUser?.uid;
+          const uid = user?.uid;
           if (!uid) throw new Error("Not signed in.");
           const payload = buildUserDivertPayload({
             hospitalId,
@@ -279,7 +280,7 @@ export default function ReportPage() {
         const batch = writeBatch(db);
 
         if (mode === "user") {
-          const uid = auth.currentUser?.uid;
+          const uid = user?.uid;
           if (!uid) throw new Error("Not signed in.");
 
           for (const day of startDays) {

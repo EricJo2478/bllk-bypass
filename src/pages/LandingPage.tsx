@@ -19,10 +19,11 @@ import {
   serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
-import { db, auth } from "../services/firebase";
+import { db } from "../services/firebase";
 import { fmtRegina } from "../utils/datetime";
 import { dateKeyFromNowRegina, dateKeyFromDate } from "../utils/dateKey";
 import type { Hospital } from "../types";
+import { useAuth } from "../auth/AuthContext";
 
 /** Default window: now → next 24h */
 function defaultWindow() {
@@ -66,6 +67,8 @@ function dayKeysInWindowRegina(
 export default function LandingPage() {
   // --- hospitals ---
   const [hospitals, setHospitals] = useState<Hospital[]>([]);
+  const { user } = useAuth();
+
   useEffect(() => {
     (async () => {
       const snap = await getDocs(collection(db, "hospitals"));
@@ -286,7 +289,7 @@ export default function LandingPage() {
                       </div>
                       {d.notes && <div className="mt-2">{d.notes}</div>}
                     </div>
-                    {auth.currentUser && (
+                    {user && (
                       <Button
                         variant="outline-secondary"
                         size="sm"
