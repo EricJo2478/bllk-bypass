@@ -1,5 +1,11 @@
 // src/auth/AuthContext.tsx
-import React, { createContext, useContext, useMemo, useEffect } from "react";
+import React, {
+  createContext,
+  useContext,
+  useMemo,
+  useEffect,
+  useState,
+} from "react";
 import { auth, db } from "../services/firebase";
 import {
   GoogleAuthProvider,
@@ -10,10 +16,10 @@ import {
   signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
+  onAuthStateChanged,
   type User,
 } from "firebase/auth";
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
-import { useAuthState } from "react-firebase-hooks/auth";
 import { isMobileLike } from "../utils/device";
 
 async function ensureUserDoc(u: User) {
@@ -36,7 +42,7 @@ async function ensureUserDoc(u: User) {
 }
 
 type Ctx = {
-  user: User | null | undefined;
+  user: User | null;
   loading: boolean;
   signInEmail: (email: string, password: string) => Promise<void>;
   signUpEmail: (
@@ -51,39 +57,54 @@ type Ctx = {
 const AuthContext = createContext<Ctx | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, loading] = useAuthState(auth);
+  const [user, setUser] = useState<User | null>(null);
+  const [booting, setBooting] = useState(true); // ← gate rendering until redirect+initial state done
 
-  // Only finish redirect if WE initiated one (prevents auth/argument-error)
+  // Finish redirect (only if we initiated one)
   useEffect(() => {
     (async () => {
       try {
         const expect = localStorage.getItem("auth:expectRedirect");
-        if (!expect) return;
-        localStorage.removeItem("auth:expectRedirect");
-
-        const res = await getRedirectResult(auth);
-        if (res?.user) {
-          console.debug("[auth] redirect user:", res.user.uid);
-          await ensureUserDoc(res.user);
-        } else {
-          console.debug("[auth] redirect: no user (ok)");
+        if (expect) {
+          localStorage.removeItem("auth:expectRedirect");
+          const res = await getRedirectResult(auth);
+          if (res?.user) {
+            console.debug("[auth] redirect user:", res.user.uid);
+            await ensureUserDoc(res.user);
+          } else {
+            console.debug("[auth] redirect: no user (ok)");
+          }
         }
       } catch (e) {
         console.error("[auth] getRedirectResult error:", e);
+      } finally {
+        // After attempting redirect handoff, we still wait for the initial auth state below
       }
     })();
   }, []);
 
+  // Subscribe to auth state; resolve initial state before rendering
   useEffect(() => {
-    if (user) ensureUserDoc(user).catch(console.error);
-  }, [user?.uid]);
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      setUser(u);
+      if (u) {
+        // optional: ensure profile exists on any sign-in
+        await ensureUserDoc(u);
+      }
+      // First time this fires, we’re done booting
+      setBooting(false);
+      console.debug("[auth] onAuthStateChanged:", u ? u.uid : null);
+    });
+    return () => unsub();
+  }, []);
 
   const value = useMemo<Ctx>(
     () => ({
       user,
-      loading,
+      loading: booting, // consumers can treat "booting" as loading
       async signInEmail(email, password) {
         await signInWithEmailAndPassword(auth, email, password);
+        // onAuthStateChanged will fire
       },
       async signUpEmail(email, password, displayName) {
         const cred = await createUserWithEmailAndPassword(
@@ -98,11 +119,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const provider = new GoogleAuthProvider();
         provider.setCustomParameters({ prompt: "select_account" });
 
-        console.log("[auth] config", {
-          authDomain: (auth as any)?.config?.authDomain,
-          appName: (auth as any)?.app?.name,
-          providerId: (provider as any)?.providerId,
-        });
+        console.debug(
+          "[auth] signInGoogle auth app:",
+          (auth as any)?.app?.name
+        );
 
         try {
           if (isMobileLike()) {
@@ -112,16 +132,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             await signInWithPopup(auth, provider);
           }
         } catch (err: any) {
-          console.error(
-            "[auth] signInGoogle failed:",
-            err?.code,
-            err?.message,
-            err
-          );
           if (String(err?.code || "").startsWith("auth/popup-")) {
             localStorage.setItem("auth:expectRedirect", "1");
             await signInWithRedirect(auth, provider);
           } else {
+            console.error("[auth] signInGoogle error:", err);
             throw err;
           }
         }
@@ -130,8 +145,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await fbSignOut(auth);
       },
     }),
-    [user, loading]
+    [user, booting]
   );
+
+  // Gate rendering until we’ve finished redirect handoff + received initial auth state.
+  if (booting) {
+    return null; // or a small splash/loader
+  }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
