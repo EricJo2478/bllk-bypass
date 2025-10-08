@@ -1,25 +1,14 @@
 <!doctype html>
-<html lang="en">
+<html data-bs-theme="dark" lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Redirecting…</title>
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script>
-      (function () {
-        // Build the original path + query + hash
-        var l = window.location;
-        var path = l.pathname + l.search + l.hash;
-
-        // If you deploy under a subpath, you may want to strip it here.
-
-        // Redirect to the SPA entry with ?p=<encoded original>
-        var target = "/" + "?p=" + encodeURIComponent(path);
-        l.replace(target);
-      })();
-    </script>
-    <noscript>
-      If you’re seeing this, enable JavaScript. We’re redirecting you to the app.
-    </noscript>
+    <title>Bypasses</title>
+    <script type="module" crossorigin src="/assets/index-CdekWLku.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-C11chwFa.css">
   </head>
-  <body></body>
+  <body>
+    <div id="root"></div>
+  </body>
 </html>
